@@ -1,21 +1,28 @@
 const express  = require('express');
 const router   = express.Router();
 const Wishlist = require('../models/Wishlist');
-const { protect } = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
+
+const getWishlistFilter = (req) => {
+  if (req.user) return { user: req.user._id };
+  if (req.cookies?.sessionId) return { sessionId: String(req.cookies.sessionId) };
+  return { _id: null };
+};
 
 // GET /api/wishlist
-router.get('/', protect, async (req, res, next) => {
+router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const wishlist = await Wishlist.findOne({ user: req.user._id }).populate('products', 'name slug images price salePrice ratingsAverage badge');
+    const wishlist = await Wishlist.findOne(getWishlistFilter(req)).populate('products', 'name slug images price salePrice ratingsAverage badge');
     res.json({ success: true, data: wishlist || { products: [] } });
   } catch (err) { next(err); }
 });
 
 // POST /api/wishlist/:productId
-router.post('/:productId', protect, async (req, res, next) => {
+router.post('/:productId', optionalAuth, async (req, res, next) => {
   try {
-    let wishlist = await Wishlist.findOne({ user: req.user._id });
-    if (!wishlist) wishlist = new Wishlist({ user: req.user._id, products: [] });
+    const filter = getWishlistFilter(req);
+    let wishlist = await Wishlist.findOne(filter);
+    if (!wishlist) wishlist = new Wishlist({ ...filter, products: [] });
     if (!wishlist.products.includes(req.params.productId)) {
       wishlist.products.push(req.params.productId);
       await wishlist.save();
@@ -25,9 +32,9 @@ router.post('/:productId', protect, async (req, res, next) => {
 });
 
 // DELETE /api/wishlist/:productId
-router.delete('/:productId', protect, async (req, res, next) => {
+router.delete('/:productId', optionalAuth, async (req, res, next) => {
   try {
-    const wishlist = await Wishlist.findOne({ user: req.user._id });
+    const wishlist = await Wishlist.findOne(getWishlistFilter(req));
     if (wishlist) {
       wishlist.products = wishlist.products.filter((p) => p.toString() !== req.params.productId);
       await wishlist.save();
