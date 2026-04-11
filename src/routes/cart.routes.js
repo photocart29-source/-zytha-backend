@@ -5,8 +5,11 @@ const Product   = require('../models/Product');
 const Coupon    = require('../models/Coupon');
 const { protect, optionalAuth } = require('../middleware/auth');
 
-const getCartFilter = (req) =>
-  req.user ? { user: req.user._id } : { sessionId: req.cookies?.sessionId };
+const getCartFilter = (req) => {
+  if (req.user) return { user: req.user._id };
+  if (req.cookies?.sessionId) return { sessionId: String(req.cookies.sessionId) };
+  return { _id: null }; // Should not happen with ensureSession middleware
+};
 
 // GET /api/cart
 router.get('/', optionalAuth, async (req, res, next) => {

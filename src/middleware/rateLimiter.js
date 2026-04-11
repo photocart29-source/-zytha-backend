@@ -10,6 +10,10 @@ exports.authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    // Unique key per IP + Username to avoid blocking everyone on same IP
+    return req.ip + '_' + (req.body.email || '');
+  },
 });
 
 /**

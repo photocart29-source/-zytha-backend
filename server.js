@@ -26,10 +26,14 @@ const uploadRoutes      = require('./src/routes/upload.routes');
 const webhookRoutes     = require('./src/routes/webhook.routes');
 const adminRoutes       = require('./src/routes/admin.routes');
 const settingRoutes     = require('./src/routes/setting.routes');
+const { ensureSession } = require('./src/middleware/session');
 
 const { errorHandler, notFound } = require('./src/middleware/errorHandler');
 
 const app = express();
+
+// Trust proxy for correct IP detection in rate limiting (e.g., on Render)
+app.set('trust proxy', 1);
 
 // ─── Security Headers ──────────────────────────────────────────────────────────
 app.use(helmet());
@@ -49,6 +53,7 @@ app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRoute
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
+app.use(ensureSession);
 
 // ─── Sanitization & Security ───────────────────────────────────────────────────
 app.use(mongoSanitize());  // NoSQL injection prevention
