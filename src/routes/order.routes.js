@@ -21,6 +21,7 @@ router.post('/', protect, async (req, res, next) => {
       itemsTotal += price * i.quantity;
       return {
         product:  i.product._id,
+        vendor:   i.product.vendor,
         name:     i.product.name,
         image:    i.product.images?.[0]?.url,
         price,
@@ -94,20 +95,37 @@ router.post('/', protect, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/orders — customer's orders
+// GET /api/orders — Fetch orders based on role
 router.get('/', protect, async (req, res, next) => {
   try {
-    const filter = req.user.role === 'admin' || req.user.role === 'superadmin'
-      ? {}
-      : { user: req.user._id };
+    let filter = {};
     const { page = 1, limit = 10 } = req.query;
-    const orders = await Order.find(filter)
+
+    if (req.user.role === 'vendor') {
+      filter = { 'items.vendor': req.user._id };
+    } else if (req.user.role === 'customer') {
+      filter = { user: req.user._id };
+    } // admin/superadmin sees everything
+
+    let orders = await Order.find(filter)
       .populate('user', 'name email')
-      .skip((page - 1) * limit)
+      .skip((Number(page) - 1) * Number(limit))
       .limit(Number(limit))
       .sort('-createdAt');
+
+    // If vendor, only return their items and adjust totals
+    if (req.user.role === 'vendor') {
+      orders = orders.map(order => {
+        const orderObj = order.toObject();
+        orderObj.items = orderObj.items.filter(item => item.vendor.toString() === req.user._id.toString());
+        // For vendors, the total shown should only be for their items
+        orderObj.vendorTotal = orderObj.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+        return orderObj;
+      });
+    }
+
     const total = await Order.countDocuments(filter);
-    res.json({ success: true, data: orders, total, pages: Math.ceil(total / limit) });
+    res.json({ success: true, data: orders, total, pages: Math.ceil(total / Number(limit)) });
   } catch (err) { next(err); }
 });
 
@@ -116,21 +134,41 @@ router.get('/:id', protect, async (req, res, next) => {
   try {
     const order = await Order.findOne({ orderId: req.params.id }).populate('user', 'name email');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
-    if (order.user._id.toString() !== req.user._id.toString() && !['admin', 'superadmin'].includes(req.user.role)) {
+    
+    // Authorization check
+    const isOwner = order.user._id.toString() === req.user._id.toString();
+    const isAdmin = ['admin', 'superadmin'].includes(req.user.role);
+    const isVendor = req.user.role === 'vendor' && order.items.some(i => i.vendor.toString() === req.user._id.toString());
+
+    if (!isOwner && !isAdmin && !isVendor) {
       return res.status(403).json({ success: false, message: 'Not authorized.' });
     }
-    res.json({ success: true, data: order });
+
+    let orderData = order.toObject();
+    if (req.user.role === 'vendor') {
+      orderData.items = orderData.items.filter(i => i.vendor.toString() === req.user._id.toString());
+      orderData.vendorTotal = orderData.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+    }
+
+    res.json({ success: true, data: orderData });
   } catch (err) { next(err); }
 });
 
-// PATCH /api/orders/:id/status — admin
-router.patch('/:id/status', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+// PATCH /api/orders/:id/status — admin or vendor
+router.patch('/:id/status', protect, authorize('vendor', 'admin', 'superadmin'), async (req, res, next) => {
   try {
     const { status, note } = req.body;
     const order = await Order.findOne({ orderId: req.params.id });
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
+
+    // Vendor can only update IF it's their product
+    if (req.user.role === 'vendor') {
+      const hasOwnProduct = order.items.some(i => i.vendor.toString() === req.user._id.toString());
+      if (!hasOwnProduct) return res.status(403).json({ success: false, message: 'Not authorized for this order.' });
+    }
+
     order.orderStatus = status;
-    order.statusHistory.push({ status, note });
+    order.statusHistory.push({ status, note: note || `Status updated to ${status}` });
     await order.save();
     res.json({ success: true, data: order });
   } catch (err) { next(err); }

@@ -12,7 +12,7 @@ const getWishlistFilter = (req) => {
 // GET /api/wishlist
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const wishlist = await Wishlist.findOne(getWishlistFilter(req)).populate('products', 'name slug images price salePrice ratingsAverage badge');
+    const wishlist = await Wishlist.findOne(getWishlistFilter(req)).populate('products', 'name slug images price salePrice stock ratingsAverage badge');
     res.json({ success: true, data: wishlist || { products: [] } });
   } catch (err) { next(err); }
 });

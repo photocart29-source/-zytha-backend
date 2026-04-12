@@ -52,6 +52,35 @@ router.get('/', protect, authorize('admin', 'superadmin'), async (req, res, next
   } catch (err) { next(err); }
 });
 
+// POST /api/vendors — Admin creates vendor
+router.post('/', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+  try {
+    const { name, email, password, storeName } = req.body;
+    
+    // 1. Create User
+    const userExists = await User.findOne({ email });
+    if (userExists) return res.status(400).json({ success: false, message: 'User with this email already exists.' });
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: 'vendor',
+      isEmailVerified: true
+    });
+
+    // 2. Create Vendor Profile
+    const vendor = await Vendor.create({
+      user: user._id,
+      storeName,
+      storeSlug: slugify(storeName, { lower: true }),
+      status: 'approved' // Auto-approved when created by admin
+    });
+
+    res.status(201).json({ success: true, data: { user, vendor }, message: 'Vendor created successfully.' });
+  } catch (err) { next(err); }
+});
+
 // PATCH /api/vendors/:id/status — admin approves/suspends vendor
 router.patch('/:id/status', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
   try {
@@ -68,6 +97,78 @@ router.patch('/:id/status', protect, authorize('admin', 'superadmin'), async (re
     sendVendorStatusEmail({ to: vendor.user.email, name: vendor.user.name, status }).catch(console.error);
 
     res.json({ success: true, data: vendor });
+  } catch (err) { next(err); }
+});
+
+// GET /api/vendors/profile alias
+router.get('/profile', protect, async (req, res, next) => {
+  try {
+    const vendor = await Vendor.findOne({ user: req.user._id });
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor profile not found.' });
+    res.json({ success: true, data: vendor });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/vendors/profile — update vendor profile
+router.put('/profile', protect, authorize('vendor'), async (req, res, next) => {
+  try {
+    const updates = { ...req.body };
+    
+    // Auto-update slug if storeName changes
+    if (updates.storeName) {
+      updates.storeSlug = slugify(updates.storeName, { lower: true });
+    }
+
+    const vendor = await Vendor.findOneAndUpdate(
+      { user: req.user._id }, 
+      updates, 
+      { new: true, runValidators: true }
+    );
+    
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor profile not found.' });
+    res.json({ success: true, data: vendor });
+  } catch (err) { next(err); }
+});
+
+const multer  = require('multer');
+const storage = multer.memoryStorage();
+const upload  = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+// POST /api/vendors/banner — set store banner image
+router.post('/banner', protect, authorize('vendor'), upload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image provided.' });
+    
+    const base64Data = req.file.buffer.toString('base64');
+    const url = `data:${req.file.mimetype};base64,${base64Data}`;
+
+    const vendor = await Vendor.findOneAndUpdate(
+       { user: req.user._id },
+       { banner: { url, publicId: req.file.originalname } },
+       { new: true }
+    );
+    
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
+    res.json({ success: true, data: vendor.banner });
+  } catch (err) { next(err); }
+});
+
+// POST /api/vendors/logo — set store logo image
+router.post('/logo', protect, authorize('vendor'), upload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image provided.' });
+    
+    const base64Data = req.file.buffer.toString('base64');
+    const url = `data:${req.file.mimetype};base64,${base64Data}`;
+
+    const vendor = await Vendor.findOneAndUpdate(
+       { user: req.user._id },
+       { logo: { url, publicId: req.file.originalname } },
+       { new: true }
+    );
+    
+    if (!vendor) return res.status(404).json({ success: false, message: 'Vendor not found.' });
+    res.json({ success: true, data: vendor.logo });
   } catch (err) { next(err); }
 });
 

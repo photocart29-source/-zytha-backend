@@ -1,6 +1,8 @@
 const jwt    = require('jsonwebtoken');
 const crypto = require('crypto');
 const User   = require('../models/User');
+const Cart   = require('../models/Cart');
+const Wishlist = require('../models/Wishlist');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/email.service');
 const { OAuth2Client } = require('google-auth-library');
 
@@ -37,6 +39,55 @@ const sendTokens = (user, statusCode, res) => {
       isEmailVerified: user.isEmailVerified,
     },
   });
+};
+
+const mergeGuestData = async (userId, sessionId) => {
+  if (!sessionId) return;
+
+  try {
+    // 1. Merge Cart
+    const guestCart = await Cart.findOne({ sessionId });
+    if (guestCart && guestCart.items.length > 0) {
+      let userCart = await Cart.findOne({ user: userId });
+      if (!userCart) {
+        userCart = new Cart({ user: userId, items: [] });
+      }
+
+      // Merge items
+      guestCart.items.forEach(guestItem => {
+        const existingIdx = userCart.items.findIndex(i => i.product.toString() === guestItem.product.toString());
+        if (existingIdx > -1) {
+          userCart.items[existingIdx].quantity += guestItem.quantity;
+        } else {
+          userCart.items.push(guestItem);
+        }
+      });
+
+      await userCart.save();
+      await Cart.findByIdAndDelete(guestCart._id);
+    }
+
+    // 2. Merge Wishlist
+    const guestWishlist = await Wishlist.findOne({ sessionId });
+    if (guestWishlist && guestWishlist.products.length > 0) {
+      let userWishlist = await Wishlist.findOne({ user: userId });
+      if (!userWishlist) {
+        userWishlist = new Wishlist({ user: userId, products: [] });
+      }
+
+      // Merge products (unique)
+      guestWishlist.products.forEach(pId => {
+        if (!userWishlist.products.includes(pId)) {
+          userWishlist.products.push(pId);
+        }
+      });
+
+      await userWishlist.save();
+      await Wishlist.findByIdAndDelete(guestWishlist._id);
+    }
+  } catch (err) {
+    console.error('Error merging guest data:', err);
+  }
 };
 
 // ─── POST /api/auth/register ───────────────────────────────────────────────────
@@ -90,6 +141,9 @@ exports.login = async (req, res, next) => {
       $set:   { loginAttempts: 0, lastLogin: new Date() },
       $unset: { lockUntil: 1 },
     });
+
+    // Merge guest data into the user account
+    await mergeGuestData(user._id, req.cookies?.sessionId);
 
     sendTokens(user, 200, res);
   } catch (err) {
@@ -169,6 +223,9 @@ exports.resetPassword = async (req, res, next) => {
     user.passwordResetToken   = undefined;
     user.passwordResetExpires = undefined;
     await user.save();
+
+    // Merge guest data into the user account
+    await mergeGuestData(user._id, req.cookies?.sessionId);
 
     sendTokens(user, 200, res);
   } catch (err) {

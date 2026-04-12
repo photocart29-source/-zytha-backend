@@ -16,6 +16,14 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (category) filter.category = category;
     if (brand)    filter.brand    = { $regex: brand, $options: 'i' };
     if (badge)    filter.badge    = badge;
+    
+    // Vendor isolation / explicitly selected vendor
+    if (req.user && req.user.role === 'vendor') {
+      filter.vendor = req.user._id;
+    } else if (req.query.vendor) {
+      filter.vendor = req.query.vendor;
+    }
+    
     if (minPrice || maxPrice) {
       filter.price = {};
       if (minPrice) filter.price.$gte = Number(minPrice);
@@ -62,15 +70,30 @@ router.post('/', protect, authorize('vendor', 'admin', 'superadmin'), async (req
 // PUT /api/products/:id
 router.put('/:id', protect, authorize('vendor', 'admin', 'superadmin'), async (req, res, next) => {
   try {
-    const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    let product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+
+    // Vendor can only update their own
+    if (req.user.role === 'vendor' && product.vendor.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized for this product.' });
+    }
+
+    product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
     res.json({ success: true, data: product });
   } catch (err) { next(err); }
 });
 
 // DELETE /api/products/:id
-router.delete('/:id', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+router.delete('/:id', protect, authorize('vendor', 'admin', 'superadmin'), async (req, res, next) => {
   try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+
+    // Vendor check
+    if (req.user.role === 'vendor' && product.vendor.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized for this product.' });
+    }
+
     await Product.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Product deleted.' });
   } catch (err) { next(err); }

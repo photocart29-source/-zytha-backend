@@ -6,6 +6,7 @@ const vendorSchema = new mongoose.Schema(
     storeName:    { type: String, required: true, trim: true },
     storeSlug:    { type: String, lowercase: true, unique: true },
     description:  String,
+    phone:        String,
     logo:         { url: String, publicId: String },
     banner:       { url: String, publicId: String },
     status:       { type: String, enum: ['pending', 'approved', 'suspended'], default: 'pending' },
@@ -16,12 +17,15 @@ const vendorSchema = new mongoose.Schema(
       accountNumber: String,
       ifscCode:      String,
       bankName:      String,
+      upiId:         String,
     },
     address: {
       line1:   String,
+      line2:   String,
       city:    String,
       state:   String,
       pincode: String,
+      country: { type: String, default: 'India' }
     },
     commission: { type: Number, default: 10 }, // % platform fee
     rating:     { type: Number, default: 0 },
