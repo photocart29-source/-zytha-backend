@@ -69,6 +69,23 @@ const userSchema = new mongoose.Schema(
       enum: ['local', 'google'],
       default: 'local',
     },
+    addresses: [
+      {
+        fullName:   String,
+        phone:      String,
+        line1:      String,
+        line2:      String,
+        city:       String,
+        state:      String,
+        pincode:    String,
+        country:    { type: String, default: 'India' },
+        isDefault:  { type: Boolean, default: false },
+        label:      { type: String, enum: ['Home', 'Work', 'Other'], default: 'Home' },
+      }
+    ],
+    selectedAddress: {
+      type: mongoose.Schema.Types.ObjectId,
+    }
   },
   { timestamps: true }
 );

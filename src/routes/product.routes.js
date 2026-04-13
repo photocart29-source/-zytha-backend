@@ -1,4 +1,5 @@
 const express  = require('express');
+const mongoose = require('mongoose');
 const router   = express.Router();
 const Product  = require('../models/Product');
 const { protect, authorize, optionalAuth } = require('../middleware/auth');
@@ -12,16 +13,22 @@ router.get('/', optionalAuth, async (req, res, next) => {
       rating, status = 'active', sort = '-createdAt', search, badge,
     } = req.query;
 
-    const filter = { status };
-    if (category) filter.category = category;
+    const filter = {};
+    if (status) {
+      if (status === 'low_stock') filter.stock = { $gt: 0, $lte: 10 };
+      else if (status !== 'all')   filter.status = status;
+    } else {
+      filter.status = 'active';
+    }
+    if (category) filter.category = new mongoose.Types.ObjectId(category);
     if (brand)    filter.brand    = { $regex: brand, $options: 'i' };
     if (badge)    filter.badge    = badge;
     
     // Vendor isolation / explicitly selected vendor
     if (req.user && req.user.role === 'vendor') {
-      filter.vendor = req.user._id;
+      filter.vendor = new mongoose.Types.ObjectId(req.user._id);
     } else if (req.query.vendor) {
-      filter.vendor = req.query.vendor;
+      filter.vendor = new mongoose.Types.ObjectId(req.query.vendor);
     }
     
     if (minPrice || maxPrice) {
@@ -32,16 +39,67 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (rating)   filter.ratingsAverage = { $gte: Number(rating) };
     if (search)   filter.$text = { $search: search };
 
-    const skip     = (Number(page) - 1) * Number(limit);
-    const products = await Product.find(filter)
-      .populate('category', 'name slug')
-      .populate('vendor', 'name')
-      .skip(skip)
-      .limit(Number(limit))
-      .sort(sort);
-    const total    = await Product.countDocuments(filter);
+    // --- Filter out products from suspended vendors ---
+    // If not searching for a specific vendor OR if user is not a vendor looking at their own products
+    const isVendorViewingSelf = req.user && req.user.role === 'vendor';
+    
+    // Build aggregation pipeline to handle vendor status join
+    const pipeline = [
+      { $match: filter },
+      // Join with Vendor collection (the collection name is usually 'vendors')
+      {
+        $lookup: {
+          from: 'vendors',
+          localField: 'vendor',
+          foreignField: 'user',
+          as: 'vendorDetails'
+        }
+      },
+      // If product has a vendor, filter by their status
+      {
+        $match: {
+          $or: [
+            { vendorDetails: { $size: 0 } }, // In case some products don't have vendor docs yet
+            { 'vendorDetails.status': { $ne: 'suspended' } },
+            // If the requester is the vendor themselves, they should see their products even if suspended
+            ...(isVendorViewingSelf ? [{ vendor: req.user._id }] : [])
+          ]
+        }
+      }
+    ];
 
-    res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / limit) });
+    // Sorting
+    const sortObj = {};
+    if (sort) {
+      const field = sort.startsWith('-') ? sort.substring(1) : sort;
+      const order = sort.startsWith('-') ? -1 : 1;
+      sortObj[field] = order;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    // Execute aggregation for total count and paginated data
+    const totalPipeline = [...pipeline, { $count: 'total' }];
+    const totalResult = await Product.aggregate(totalPipeline);
+    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+
+    const productsPipeline = [
+      ...pipeline,
+      { $sort: sortObj },
+      { $skip: skip },
+      { $limit: Number(limit) }
+    ];
+
+    let products = await Product.aggregate(productsPipeline);
+    
+    // Populate manualy since aggregate doesn't support .populate()
+    // We can also use $lookup for everything but .populate is cleaner for many refs
+    products = await Product.populate(products, [
+      { path: 'category', select: 'name slug' },
+      { path: 'vendor', select: 'name' }
+    ]);
+
+    res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
   } catch (err) { next(err); }
 });
 
@@ -51,7 +109,22 @@ router.get('/:slug', optionalAuth, async (req, res, next) => {
     const product = await Product.findOne({ slug: req.params.slug })
       .populate('category', 'name slug')
       .populate('vendor', 'name');
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+    
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+
+    // Check if vendor is suspended
+    const Vendor = require('../models/Vendor');
+    const vendorDoc = await Vendor.findOne({ user: product.vendor._id });
+    
+    const isVendorViewingSelf = req.user && req.user.role === 'vendor' && req.user._id.toString() === product.vendor._id.toString();
+    const isAdmin = req.user && (req.user.role === 'admin' || req.user.role === 'superadmin');
+
+    if (vendorDoc && vendorDoc.status === 'suspended' && !isVendorViewingSelf && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'This product is currently unavailable.' });
+    }
+
     res.json({ success: true, data: product });
   } catch (err) { next(err); }
 });
