@@ -35,7 +35,7 @@ const orderSchema = new mongoose.Schema(
     shippingAddress: addressSchema,
     paymentMethod: {
       type: String,
-      enum: ['cashfree'],
+      enum: ['cashfree', 'cod'],
       default: 'cashfree',
     },
     paymentStatus: {

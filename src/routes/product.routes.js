@@ -39,34 +39,16 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (rating)   filter.ratingsAverage = { $gte: Number(rating) };
     if (search)   filter.$text = { $search: search };
 
-    // --- Filter out products from suspended vendors ---
-    // If not searching for a specific vendor OR if user is not a vendor looking at their own products
+    // --- Optimized: Filter suspended vendors without aggregation ---
     const isVendorViewingSelf = req.user && req.user.role === 'vendor';
-    
-    // Build aggregation pipeline to handle vendor status join
-    const pipeline = [
-      { $match: filter },
-      // Join with Vendor collection (the collection name is usually 'vendors')
-      {
-        $lookup: {
-          from: 'vendors',
-          localField: 'vendor',
-          foreignField: 'user',
-          as: 'vendorDetails'
-        }
-      },
-      // If product has a vendor, filter by their status
-      {
-        $match: {
-          $or: [
-            { vendorDetails: { $size: 0 } }, // In case some products don't have vendor docs yet
-            { 'vendorDetails.status': { $ne: 'suspended' } },
-            // If the requester is the vendor themselves, they should see their products even if suspended
-            ...(isVendorViewingSelf ? [{ vendor: req.user._id }] : [])
-          ]
-        }
+    if (!isVendorViewingSelf) {
+      const Vendor = require('../models/Vendor');
+      const suspendedVendors = await Vendor.find({ status: 'suspended' }).select('user');
+      const suspendedUserIds = suspendedVendors.map(v => v.user);
+      if (suspendedUserIds.length > 0) {
+        filter.vendor = { $nin: suspendedUserIds };
       }
-    ];
+    }
 
     // Sorting
     const sortObj = {};
@@ -78,26 +60,17 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
     const skip = (Number(page) - 1) * Number(limit);
     
-    // Execute aggregation for total count and paginated data
-    const totalPipeline = [...pipeline, { $count: 'total' }];
-    const totalResult = await Product.aggregate(totalPipeline);
-    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    // Total count using standard find() - much faster than aggregate
+    const total = await Product.countDocuments(filter);
 
-    const productsPipeline = [
-      ...pipeline,
-      { $sort: sortObj },
-      { $skip: skip },
-      { $limit: Number(limit) }
-    ];
-
-    let products = await Product.aggregate(productsPipeline);
-    
-    // Populate manualy since aggregate doesn't support .populate()
-    // We can also use $lookup for everything but .populate is cleaner for many refs
-    products = await Product.populate(products, [
-      { path: 'category', select: 'name slug' },
-      { path: 'vendor', select: 'name' }
-    ]);
+    // Fetch products using standard find() with projection for better performance
+    let products = await Product.find(filter)
+      .sort(sortObj)
+      .skip(skip)
+      .limit(Number(limit))
+      .select('-description') // Exclude heavy description
+      .populate('category', 'name slug')
+      .populate('vendor', 'name');
 
     res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
   } catch (err) { next(err); }
