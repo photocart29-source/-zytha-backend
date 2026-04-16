@@ -83,14 +83,31 @@ router.get('/', optionalAuth, async (req, res, next) => {
         { path: 'category', select: 'name slug' },
         { path: 'vendor', select: 'name role storeName' }
       ]);
+
+      // Optimization: Only return the first image for list view
+      products = products.map(p => {
+        if (p.images && p.images.length > 0) {
+          p.images = [p.images[0]];
+        }
+        return p;
+      });
     } else {
       products = await Product.find(filter)
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select('-description')
+        .select('-description -variants')
         .populate('category', 'name slug')
         .populate('vendor', 'name role storeName');
+
+      // Optimization: Only return the first image for list view to save BW
+      products = products.map(p => {
+        const obj = p.toObject();
+        if (obj.images && obj.images.length > 0) {
+          obj.images = [obj.images[0]];
+        }
+        return obj;
+      });
     }
 
     res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
