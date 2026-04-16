@@ -39,20 +39,23 @@ router.get('/', optionalAuth, async (req, res, next) => {
     if (rating)   filter.ratingsAverage = { $gte: Number(rating) };
     if (search)   filter.$text = { $search: search };
 
-    // --- Optimized: Filter suspended vendors without aggregation ---
+    // --- FIX: Only exclude suspended vendors if any exist.
+    // Previously, setting filter.vendor = { $nin: [] } was excluding all
+    // products with no vendor (i.e., admin-created products).
     const isVendorViewingSelf = req.user && req.user.role === 'vendor';
-    if (!isVendorViewingSelf) {
+    if (!isVendorViewingSelf && !filter.vendor) {
       const Vendor = require('../models/Vendor');
       const suspendedVendors = await Vendor.find({ status: 'suspended' }).select('user');
       const suspendedUserIds = suspendedVendors.map(v => v.user);
       if (suspendedUserIds.length > 0) {
         filter.vendor = { $nin: suspendedUserIds };
       }
+      // If no suspended vendors, don't touch filter.vendor — allow ALL products including admin ones
     }
 
     // Sorting
     const sortObj = {};
-    if (sort) {
+    if (sort && sort !== 'random') {
       const field = sort.startsWith('-') ? sort.substring(1) : sort;
       const order = sort.startsWith('-') ? -1 : 1;
       sortObj[field] = order;
@@ -60,17 +63,33 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
     const skip = (Number(page) - 1) * Number(limit);
     
-    // Total count using standard find() - much faster than aggregate
+    // Total count
     const total = await Product.countDocuments(filter);
 
-    // Fetch products using standard find() with projection for better performance
-    let products = await Product.find(filter)
-      .sort(sortObj)
-      .skip(skip)
-      .limit(Number(limit))
-      .select('-description') // Exclude heavy description
-      .populate('category', 'name slug')
-      .populate('vendor', 'name');
+    let products;
+    if (sort === 'random') {
+      // For random sort, we use aggregation with $sample
+      // NOTE: Pagination is less stable with pure $sample, but good for discovery
+      products = await Product.aggregate([
+        { $match: filter },
+        { $sample: { size: Number(limit) } },
+        { $project: { description: 0 } }
+      ]);
+      
+      // Manually populate since aggregate doesn't do it as easily
+      products = await Product.populate(products, [
+        { path: 'category', select: 'name slug' },
+        { path: 'vendor', select: 'name role storeName' }
+      ]);
+    } else {
+      products = await Product.find(filter)
+        .sort(sortObj)
+        .skip(skip)
+        .limit(Number(limit))
+        .select('-description')
+        .populate('category', 'name slug')
+        .populate('vendor', 'name role storeName');
+    }
 
     res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
   } catch (err) { next(err); }
@@ -81,7 +100,7 @@ router.get('/:slug', optionalAuth, async (req, res, next) => {
   try {
     const product = await Product.findOne({ slug: req.params.slug })
       .populate('category', 'name slug')
-      .populate('vendor', 'name');
+      .populate('vendor', 'name role storeName');
     
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
@@ -105,10 +124,12 @@ router.get('/:slug', optionalAuth, async (req, res, next) => {
 // POST /api/products — vendor or admin
 router.post('/', protect, authorize('vendor', 'admin', 'superadmin'), async (req, res, next) => {
   try {
-    const body     = req.body;
-    body.slug      = slugify(body.name, { lower: true });
-    if (req.user.role === 'vendor') body.vendor = req.user._id;
-    const product  = await Product.create(body);
+    const body = req.body;
+    body.slug  = slugify(body.name, { lower: true });
+    // FIX: Admin/superadmin act as the platform vendor.
+    // Always assign creator's _id as vendor so products are visible in the shop.
+    if (!body.vendor) body.vendor = req.user._id;
+    const product = await Product.create(body);
     res.status(201).json({ success: true, data: product });
   } catch (err) { next(err); }
 });

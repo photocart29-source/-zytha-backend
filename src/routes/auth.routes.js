@@ -4,7 +4,7 @@ const router  = express.Router();
 const {
   register, login, refresh, logout,
   forgotPassword, resetPassword, getMe,
-  googleLogin
+  googleLogin, updateProfile, updatePassword
 } = require('../controllers/auth.controller');
 const { protect }     = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimiter');
@@ -28,5 +28,7 @@ router.post('/logout',           logout);
 router.post('/forgot-password',  authLimiter, forgotPassword);
 router.post('/reset-password',   resetPassword);
 router.get('/me',                protect,     getMe);
+router.patch('/profile',         protect,     updateProfile);
+router.patch('/password',        protect,     updatePassword);
 
 module.exports = router;

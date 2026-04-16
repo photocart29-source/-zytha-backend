@@ -132,7 +132,7 @@ router.put('/profile', protect, authorize('vendor'), async (req, res, next) => {
 
 const multer  = require('multer');
 const storage = multer.memoryStorage();
-const upload  = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload  = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // POST /api/vendors/banner — set store banner image
 router.post('/banner', protect, authorize('vendor'), upload.single('image'), async (req, res, next) => {

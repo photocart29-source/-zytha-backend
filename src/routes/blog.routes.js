@@ -1,66 +1,68 @@
 const express = require('express');
-const router  = express.Router();
-const Blog    = require('../models/Blog');
+const router = express.Router();
+const Blog = require('../models/Blog');
 const { protect, authorize } = require('../middleware/auth');
-const slugify = require('slug');
 
-// GET /api/blogs
-router.get('/', async (req, res, next) => {
+// GET all blogs
+router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 9, category, tag, search } = req.query;
-    const filter = { isPublished: true };
-    if (category) filter.category = category;
-    if (tag)      filter.tags     = tag;
-    if (search)   filter.$text    = { $search: search };
-    const blogs = await Blog.find(filter)
-      .populate('author', 'name avatar')
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort('-publishedAt');
-    const total = await Blog.countDocuments(filter);
-    res.json({ success: true, data: blogs, total, pages: Math.ceil(total / limit) });
-  } catch (err) { next(err); }
+    const blogs = await Blog.find().populate('author', 'name email').sort('-createdAt');
+    res.status(200).json({ success: true, data: blogs });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
-// GET /api/blogs/:slug
-router.get('/:slug', async (req, res, next) => {
+// GET single blog
+router.get('/:id', async (req, res) => {
   try {
-    const blog = await Blog.findOneAndUpdate(
-      { slug: req.params.slug, isPublished: true },
-      { $inc: { viewCount: 1 } },
-      { new: true }
-    ).populate('author', 'name avatar');
-    if (!blog) return res.status(404).json({ success: false, message: 'Blog post not found.' });
-    res.json({ success: true, data: blog });
-  } catch (err) { next(err); }
+    const blog = await Blog.findById(req.params.id).populate('author', 'name email');
+    if (!blog) return res.status(404).json({ success: false, message: 'Blog not found' });
+    res.status(200).json({ success: true, data: blog });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
-// POST /api/blogs — admin only
-router.post('/', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+// POST create blog (Admin only)
+router.post('/', protect, authorize('admin', 'superadmin'), async (req, res) => {
   try {
-    const body = req.body;
-    body.slug   = slugify(body.title, { lower: true });
-    body.author = req.user._id;
-    if (body.isPublished && !body.publishedAt) body.publishedAt = new Date();
-    const blog = await Blog.create(body);
+    req.body.author = req.user.id;
+    const blog = await Blog.create(req.body);
     res.status(201).json({ success: true, data: blog });
-  } catch (err) { next(err); }
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
 });
 
-// PUT /api/blogs/:id
-router.put('/:id', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+// PUT update blog (Admin only)
+router.put('/:id', protect, authorize('admin', 'superadmin'), async (req, res) => {
   try {
-    const blog = await Blog.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-    res.json({ success: true, data: blog });
-  } catch (err) { next(err); }
+    let blog = await Blog.findById(req.params.id);
+    if (!blog) return res.status(404).json({ success: false, message: 'Blog not found' });
+
+    blog = await Blog.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+    });
+
+    res.status(200).json({ success: true, data: blog });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
 });
 
-// DELETE /api/blogs/:id
-router.delete('/:id', protect, authorize('admin', 'superadmin'), async (req, res, next) => {
+// DELETE blog (Admin only)
+router.delete('/:id', protect, authorize('admin', 'superadmin'), async (req, res) => {
   try {
-    await Blog.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: 'Blog deleted.' });
-  } catch (err) { next(err); }
+    const blog = await Blog.findById(req.params.id);
+    if (!blog) return res.status(404).json({ success: false, message: 'Blog not found' });
+
+    await blog.deleteOne();
+    res.status(200).json({ success: true, data: {} });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 module.exports = router;

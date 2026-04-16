@@ -1,25 +1,52 @@
 const mongoose = require('mongoose');
 
-const blogSchema = new mongoose.Schema(
-  {
-    title:       { type: String, required: true, trim: true },
-    slug:        { type: String, required: true, unique: true, lowercase: true },
-    content:     { type: String, required: true },
-    excerpt:     String,
-    coverImage:  { url: String, publicId: String },
-    author:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    category:    { type: String, trim: true },
-    tags:        [String],
-    isPublished: { type: Boolean, default: false },
-    publishedAt: Date,
-    viewCount:   { type: Number, default: 0 },
-    seoTitle:    String,
-    seoDescription: String,
+const blogSchema = new mongoose.Schema({
+  title: {
+    type: String,
+    required: [true, 'Please add a title'],
+    trim: true,
+    maxlength: [100, 'Title cannot be more than 100 characters']
   },
-  { timestamps: true }
-);
+  slug: String,
+  excerpt: {
+    type: String,
+    required: [true, 'Please add an excerpt'],
+    maxlength: [200, 'Excerpt cannot be more than 200 characters']
+  },
+  content: {
+    type: String,
+    required: [true, 'Please add content']
+  },
+  image: {
+    type: String,
+    default: 'no-photo.jpg'
+  },
+  category: {
+    type: String,
+    required: [true, 'Please add a category']
+  },
+  readTime: {
+    type: Number,
+    default: 5
+  },
+  author: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
 
-blogSchema.index({ isPublished: 1, publishedAt: -1 });
-blogSchema.index({ title: 'text', content: 'text', tags: 'text' });
+// Create blog slug from the title
+blogSchema.pre('save', function(next) {
+  this.slug = this.title
+    .toLowerCase()
+    .split(' ')
+    .join('-');
+  next();
+});
 
 module.exports = mongoose.model('Blog', blogSchema);

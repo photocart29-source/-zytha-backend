@@ -35,8 +35,8 @@ const orderSchema = new mongoose.Schema(
     shippingAddress: addressSchema,
     paymentMethod: {
       type: String,
-      enum: ['cashfree', 'cod'],
-      default: 'cashfree',
+      enum: ['cashfree', 'razorpay', 'cod'],
+      default: 'razorpay',
     },
     paymentStatus: {
       type: String,
@@ -57,6 +57,10 @@ const orderSchema = new mongoose.Schema(
     cashfreeOrderId:    String,
     cashfreePaymentId:  String,
     paymentSessionId:   String,
+    // Razorpay
+    razorpayOrderId:    String,
+    razorpayPaymentId:  String,
+    razorpaySignature:  String,
     // Tracking
     trackingNumber: String,
     courier:        String,
