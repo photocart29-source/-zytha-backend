@@ -61,7 +61,9 @@ router.get('/', optionalAuth, async (req, res, next) => {
       sortObj[field] = order;
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // Force sensible limits
+    let finalLimit = Math.min(Math.max(Number(limit), 1), 100);
+    const skip = (Number(page) - 1) * finalLimit;
     
     // Total count
     const total = await Product.countDocuments(filter);
@@ -72,7 +74,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
       // NOTE: Pagination is less stable with pure $sample, but good for discovery
       products = await Product.aggregate([
         { $match: filter },
-        { $sample: { size: Number(limit) } },
+        { $sample: { size: finalLimit } },
         { $project: { description: 0 } }
       ]);
       
@@ -85,7 +87,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
       products = await Product.find(filter)
         .sort(sortObj)
         .skip(skip)
-        .limit(Number(limit))
+        .limit(finalLimit)
         .select('-description')
         .populate('category', 'name slug')
         .populate('vendor', 'name role storeName');
