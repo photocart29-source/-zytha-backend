@@ -5,6 +5,47 @@ const Product  = require('../models/Product');
 const { protect, authorize, optionalAuth } = require('../middleware/auth');
 const slugify  = require('slug');
 
+// Cache suspended vendor IDs — refresh every 5 minutes
+// This prevents a DB query on EVERY product request
+let suspendedVendorCache = { ids: [], lastFetched: 0 };
+
+async function getSuspendedVendorIds() {
+  const FIVE_MIN = 5 * 60 * 1000;
+  if (Date.now() - suspendedVendorCache.lastFetched < FIVE_MIN) {
+    return suspendedVendorCache.ids;
+  }
+  const Vendor = require('../models/Vendor');
+  const suspended = await Vendor.find({ status: 'suspended' }).select('user').lean();
+  suspendedVendorCache = { ids: suspended.map(v => v.user), lastFetched: Date.now() };
+  return suspendedVendorCache.ids;
+}
+
+// In-Memory map cache for eliminating N+1 populate() queries!
+let vendorCache = { map: {}, lastFetched: 0 };
+let categoryCache = { map: {}, lastFetched: 0 };
+const TEN_MIN = 10 * 60 * 1000;
+
+async function getPopulateMaps() {
+  const now = Date.now();
+  if (now - vendorCache.lastFetched > TEN_MIN) {
+    const User = require('../models/User'); // Product vendor refs User
+    const vendors = await User.find({ role: { $in: ['vendor', 'admin', 'superadmin'] } }).select('name role').lean();
+    vendorCache = {
+      map: Object.fromEntries(vendors.map(v => [v._id.toString(), v])),
+      lastFetched: now
+    };
+  }
+  if (now - categoryCache.lastFetched > TEN_MIN) {
+    const Category = require('../models/Category');
+    const categories = await Category.find({}).select('name slug').lean();
+    categoryCache = {
+      map: Object.fromEntries(categories.map(c => [c._id.toString(), c])),
+      lastFetched: now
+    };
+  }
+  return { vMap: vendorCache.map, cMap: categoryCache.map };
+}
+
 // GET /api/products
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
@@ -16,101 +57,108 @@ router.get('/', optionalAuth, async (req, res, next) => {
     const filter = {};
     if (status) {
       if (status === 'low_stock') filter.stock = { $gt: 0, $lte: 10 };
-      else if (status !== 'all')   filter.status = status;
+      else if (status !== 'all')  filter.status = status;
     } else {
       filter.status = 'active';
     }
     if (category) filter.category = new mongoose.Types.ObjectId(category);
     if (brand)    filter.brand    = { $regex: brand, $options: 'i' };
     if (badge)    filter.badge    = badge;
-    
-    // Vendor isolation / explicitly selected vendor
-    if (req.user && req.user.role === 'vendor') {
-      filter.vendor = new mongoose.Types.ObjectId(req.user._id);
-    } else if (req.query.vendor) {
-      filter.vendor = new mongoose.Types.ObjectId(req.query.vendor);
-    }
-    
     if (minPrice || maxPrice) {
       filter.price = {};
       if (minPrice) filter.price.$gte = Number(minPrice);
       if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
-    if (rating)   filter.ratingsAverage = { $gte: Number(rating) };
-    if (search)   filter.$text = { $search: search };
+    if (rating)  filter.ratingsAverage = { $gte: Number(rating) };
+    if (search)  filter.$text = { $search: search };
 
-    // --- FIX: Only exclude suspended vendors if any exist.
-    // Previously, setting filter.vendor = { $nin: [] } was excluding all
-    // products with no vendor (i.e., admin-created products).
-    const isVendorViewingSelf = req.user && req.user.role === 'vendor';
-    if (!isVendorViewingSelf && !filter.vendor) {
-      const Vendor = require('../models/Vendor');
-      const suspendedVendors = await Vendor.find({ status: 'suspended' }).select('user');
-      const suspendedUserIds = suspendedVendors.map(v => v.user);
-      if (suspendedUserIds.length > 0) {
-        filter.vendor = { $nin: suspendedUserIds };
+    // Vendor isolation
+    if (req.user && req.user.role === 'vendor') {
+      filter.vendor = new mongoose.Types.ObjectId(req.user._id);
+    } else if (req.query.vendor) {
+      filter.vendor = new mongoose.Types.ObjectId(req.query.vendor);
+    } else {
+      // FIX 1: Use cache instead of hitting DB on every request
+      const suspendedIds = await getSuspendedVendorIds();
+      if (suspendedIds.length > 0) {
+        filter.vendor = { $nin: suspendedIds };
       }
-      // If no suspended vendors, don't touch filter.vendor — allow ALL products including admin ones
     }
 
-    // Sorting
-    const sortObj = {};
-    if (sort && sort !== 'random') {
+    let numericLimit = Number(limit);
+
+    console.log('[API] Check isFiltered');
+    const isFiltered = Object.keys(filter).length > 0;
+    
+    console.log('[API] countDocuments start');
+    const total = isFiltered
+      ? await Product.countDocuments(filter)
+      : await Product.estimatedDocumentCount();
+    console.log('[API] countDocuments end', total);
+
+    // If count-only request, return immediately — no product query needed
+    if (numericLimit === 0) {
+      return res.json({ success: true, data: [], total, page: 1, pages: 0 });
+    }
+
+    let finalLimit = Math.min(Math.max(numericLimit, 1), 100);
+    const skip = (Number(page) - 1) * finalLimit;
+
+    let products;
+    console.log('[API] getPopulateMaps start');
+    const { vMap, cMap } = await getPopulateMaps();
+    console.log('[API] getPopulateMaps end');
+
+    if (sort === 'random') {
+      // FIX 3: Replace $sample with ID-based shuffle
+      // Step 1: Fetch only _id fields — very fast, minimal memory
+      const allIds = await Product.find(filter, '_id').lean();
+
+      // Step 2: Fisher-Yates shuffle in JS, take only what we need
+      for (let i = allIds.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allIds[i], allIds[j]] = [allIds[j], allIds[i]];
+      }
+      const selectedIds = allIds.slice(0, finalLimit).map(p => p._id);
+
+      // Step 3: Fetch only those N products with full fields
+      products = await Product.find({ _id: { $in: selectedIds } })
+        .select({ description: 0, variants: 0, images: 0 })  // ← exclude images, thumbnailUrl serves the UI
+        .lean();
+
+      // Trim to first image only + manual memory join
+      products = products.map(p => {
+        if (p.category) p.category = cMap[p.category.toString()] || p.category;
+        if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
+        return p;
+      });
+
+    } else {
+      const sortObj = {};
       const field = sort.startsWith('-') ? sort.substring(1) : sort;
       const order = sort.startsWith('-') ? -1 : 1;
       sortObj[field] = order;
-    }
 
-    // Force sensible limits
-    let finalLimit = Math.min(Math.max(Number(limit), 1), 100);
-    const skip = (Number(page) - 1) * finalLimit;
-    
-    // Total count
-    const total = await Product.countDocuments(filter);
-
-    let products;
-    if (sort === 'random') {
-      // For random sort, we use aggregation with $sample
-      // NOTE: Pagination is less stable with pure $sample, but good for discovery
-      products = await Product.aggregate([
-        { $match: filter },
-        { $sample: { size: finalLimit } },
-        { $project: { description: 0 } }
-      ]);
-      
-      // Manually populate since aggregate doesn't do it as easily
-      products = await Product.populate(products, [
-        { path: 'category', select: 'name slug' },
-        { path: 'vendor', select: 'name role storeName' }
-      ]);
-
-      // Optimization: Only return the first image for list view
-      products = products.map(p => {
-        if (p.images && p.images.length > 0) {
-          p.images = [p.images[0]];
-        }
-        return p;
-      });
-    } else {
+      console.log('[API] find products start');
       products = await Product.find(filter)
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select('-description -variants')
-        .populate('category', 'name slug')
-        .populate('vendor', 'name role storeName');
+        .select({ description: 0, variants: 0, images: 0 })  // ← exclude images; use thumbnailUrl
+        .lean(); // FIX 4: .lean() skips Mongoose document hydration — faster for read-only
+      console.log('[API] find products end');
 
-      // Optimization: Only return the first image for list view to save BW
       products = products.map(p => {
-        const obj = p.toObject();
-        if (obj.images && obj.images.length > 0) {
-          obj.images = [obj.images[0]];
-        }
-        return obj;
+        if (p.category) p.category = cMap[p.category.toString()] || p.category;
+        if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
+        return p;
       });
     }
 
-    res.json({ success: true, data: products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    res.json({
+      success: true, data: products, total,
+      page: Number(page), pages: Math.ceil(total / finalLimit)
+    });
   } catch (err) { next(err); }
 });
 

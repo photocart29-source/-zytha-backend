@@ -30,6 +30,13 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    // ─── Denormalized thumbnail (first image URL) ─────────────────────────────
+    // Set automatically by pre-save hook from images[0].url.
+    // Allows the list API to skip the entire images array (no 405KB base64 blobs).
+    thumbnailUrl: {
+      type: String,
+      default: null,
+    },
     images: [
       {
         url: { type: String, required: true },
@@ -106,6 +113,31 @@ const productSchema = new mongoose.Schema(
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
+// ─── Pre-save: auto-sync thumbnailUrl from images[0] ─────────────────────────
+productSchema.pre('save', function (next) {
+  if (this.images && this.images.length > 0) {
+    this.thumbnailUrl = this.images[0].url;
+  } else {
+    this.thumbnailUrl = null;
+  }
+  next();
+});
+
+// Also sync on findOneAndUpdate so admin edits keep it correct
+productSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  const images = update?.images || update?.$set?.images;
+  if (images && images.length > 0) {
+    const thumb = images[0].url || null;
+    if (update.$set) {
+      update.$set.thumbnailUrl = thumb;
+    } else {
+      update.thumbnailUrl = thumb;
+    }
+  }
+  next();
+});
+
 // ─── Virtual: discount percentage ─────────────────────────────────────────────
 productSchema.virtual('discountPercentage').get(function () {
   if (this.salePrice && this.price > this.salePrice) {
@@ -121,7 +153,11 @@ productSchema.virtual('effectivePrice').get(function () {
 
 // ─── Text index for search ─────────────────────────────────────────────────────
 productSchema.index({ name: 'text', description: 'text', tags: 'text', brand: 'text' });
-productSchema.index({ category: 1, status: 1 });
+productSchema.index({ slug: 1 }, { unique: true });
+productSchema.index({ soldCount: -1 });
+productSchema.index({ status: 1, soldCount: -1 });
+productSchema.index({ status: 1, vendor: 1, createdAt: -1 });
+productSchema.index({ category: 1 });
 productSchema.index({ ratingsAverage: -1 });
 productSchema.index({ createdAt: -1 });
 

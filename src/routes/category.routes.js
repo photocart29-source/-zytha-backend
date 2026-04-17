@@ -7,8 +7,47 @@ const { protect, authorize } = require('../middleware/auth');
 router.get('/', async (req, res, next) => {
   try {
     const { parent } = req.query;
+    
+    // Aggregation for performance & product counts (No N+1)
+    const match = {};
+    if (parent === 'null') match.parent = null;
+    else if (parent) {
+      try { match.parent = new require('mongoose').Types.ObjectId(parent); } 
+      catch(e) { /* ignore invalid IDs */ }
+    }
+
+    const cats = await Category.aggregate([
+      { $match: match },
+      { $sort: { sortOrder: 1 } },
+      {
+        $lookup: {
+          from: 'products',
+          let: { catId: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$category', '$$catId'] } } },
+            { $count: 'count' }
+          ],
+          as: 'productStats'
+        }
+      },
+      {
+        $project: {
+          name: 1,
+          slug: 1,
+          description: 1,
+          image: 1,
+          parent: 1,
+          sortOrder: 1,
+          productCount: { $ifNull: [{ $arrayElemAt: ['$productStats.count', 0] }, 0] }
+        }
+      }
+    ]);
+
+    /* ─── Safe Rollback Logic (Legacy) ──────────────────────────────────────────
     const filter = parent === 'null' ? { parent: null } : parent ? { parent } : {};
     const cats = await Category.find(filter).sort('sortOrder').populate('children');
+    ──────────────────────────────────────────────────────────────────────────── */
+
     res.json({ success: true, data: cats });
   } catch (err) { next(err); }
 });
