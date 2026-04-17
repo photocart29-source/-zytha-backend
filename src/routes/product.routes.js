@@ -123,7 +123,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
       // Step 3: Fetch only those N products with full fields
       products = await Product.find({ _id: { $in: selectedIds } })
-        .select({ description: 0, variants: 0, images: 0 })  // ← exclude images, thumbnailUrl serves the UI
+        .select({ description: 0, variants: 0, images: 0, thumbnailUrl: 0 })
         .lean();
 
       // Trim to first image only + manual memory join
@@ -144,8 +144,8 @@ router.get('/', optionalAuth, async (req, res, next) => {
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select({ description: 0, variants: 0, images: 0 })  // ← exclude images; use thumbnailUrl
-        .lean(); // FIX 4: .lean() skips Mongoose document hydration — faster for read-only
+        .select({ description: 0, variants: 0, images: 0, thumbnailUrl: 0 })
+        .lean();
       console.log('[API] find products end');
 
       products = products.map(p => {
@@ -159,6 +159,33 @@ router.get('/', optionalAuth, async (req, res, next) => {
       success: true, data: products, total,
       page: Number(page), pages: Math.ceil(total / finalLimit)
     });
+  } catch (err) { next(err); }
+});
+
+// GET /api/products/:id/thumbnail
+router.get('/:id/thumbnail', async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id).select('images').lean();
+    if (!product || !product.images || product.images.length === 0) {
+      return res.status(404).end();
+    }
+    const url = product.images[0].url;
+    if (!url) return res.status(404).end();
+
+    const match = url.match(/^data:(.+);base64,(.+)$/);
+    if (!match) {
+      // It's a standard URL, just redirect
+      return res.redirect(url);
+    }
+    
+    const mime = match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+    
+    // Serve as binary with strong caching (1 year)
+    res.set('Content-Type', mime);
+    res.set('Cache-Control', 'public, max-age=31536000');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(buffer);
   } catch (err) { next(err); }
 });
 
