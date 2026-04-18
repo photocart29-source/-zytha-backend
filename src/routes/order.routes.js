@@ -15,7 +15,7 @@ router.post('/', protect, async (req, res, next) => {
     
     // 1. Fetch Cart and User for full data
     const [cart, user] = await Promise.all([
-      Cart.findOne({ user: req.user._id }).populate('items.product', 'name price salePrice stock status images vendor'),
+      Cart.findOne({ user: req.user._id }).populate('items.product', 'name price salePrice stock status images vendor gst'),
       require('../models/User').findById(req.user._id)
     ]);
 
@@ -31,22 +31,29 @@ router.post('/', protect, async (req, res, next) => {
 
     // 3. Map items and ensure vendor exists
     let itemsTotal = 0;
+    let totalGst = 0;
     const orderItems = cart.items.map((i) => {
       const price = i.product.salePrice || i.product.price;
+      const gstPercent = i.product.gst || 0;
+      const gstAmount = (price * i.quantity * gstPercent) / 100;
+      
       itemsTotal += price * i.quantity;
+      totalGst += gstAmount;
+
       return {
         product:  i.product._id,
         vendor:   i.product.vendor, // Now populated
         name:     i.product.name,
         image:    i.product.images?.[0]?.url,
         price,
+        gst:      gstPercent,
         quantity: i.quantity,
       };
     });
 
     let discount = cart.discount || 0;
-    const shippingCost = itemsTotal >= 500 ? 0 : 49; 
-    const totalAmount  = itemsTotal - discount + shippingCost;
+    const shippingCost = 49; 
+    const totalAmount  = Math.round(itemsTotal - discount + shippingCost + totalGst);
 
     // 4. Final Stock Validation before DB writes
     for (const i of cart.items) {
@@ -70,6 +77,7 @@ router.post('/', protect, async (req, res, next) => {
       },
       itemsTotal,
       shippingCost,
+      gst:             totalGst,
       discount,
       paymentMethod,
       couponCode:      cart.couponCode,

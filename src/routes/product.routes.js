@@ -123,13 +123,16 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
       // Step 3: Fetch only those N products with full fields
       products = await Product.find({ _id: { $in: selectedIds } })
-        .select({ description: 0, variants: 0, images: 0, thumbnailUrl: 0 })
+        .select({ variants: 0, thumbnailUrl: 0 })
         .lean();
 
       // Trim to first image only + manual memory join
       products = products.map(p => {
         if (p.category) p.category = cMap[p.category.toString()] || p.category;
         if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
+        if (p.images && p.images.length > 0) {
+          p.images = [p.images[0]];
+        }
         return p;
       });
 
@@ -144,13 +147,17 @@ router.get('/', optionalAuth, async (req, res, next) => {
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select({ description: 0, variants: 0, images: 0, thumbnailUrl: 0 })
+        .select({ variants: 0, thumbnailUrl: 0 })
         .lean();
       console.log('[API] find products end');
 
       products = products.map(p => {
         if (p.category) p.category = cMap[p.category.toString()] || p.category;
         if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
+        // Only keep the first image to save bandwidth
+        if (p.images && p.images.length > 0) {
+          p.images = [p.images[0]];
+        }
         return p;
       });
     }
@@ -186,6 +193,24 @@ router.get('/:id/thumbnail', async (req, res, next) => {
     res.set('Cache-Control', 'public, max-age=31536000');
     res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(buffer);
+  } catch (err) { next(err); }
+});
+
+// GET /api/products/:id (Get full product by ID)
+router.get('/id/:id', protect, authorize('admin', 'superadmin', 'vendor'), async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id)
+      .populate('category', 'name slug')
+      .populate('vendor', 'name role storeName');
+    
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found.' });
+
+    // Vendor check
+    if (req.user.role === 'vendor' && product.vendor._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ success: false, message: 'Not authorized.' });
+    }
+
+    res.json({ success: true, data: product });
   } catch (err) { next(err); }
 });
 

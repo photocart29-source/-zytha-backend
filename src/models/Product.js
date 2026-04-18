@@ -21,6 +21,10 @@ const productSchema = new mongoose.Schema(
       type: String,
       maxlength: [500, 'Short description cannot exceed 500 characters'],
     },
+    longDescription: {
+      type: String,
+      default: '',
+    },
     price: {
       type: Number,
       required: [true, 'Price is required'],
@@ -71,6 +75,10 @@ const productSchema = new mongoose.Schema(
     },
     weight: Number,       // in grams
     unit: String,         // e.g. "500g", "1kg", "piece"
+    gst: {
+      type: Number,
+      default: 0,         // Percentage (e.g., 5, 12, 18)
+    },
     tags: [String],
     status: {
       type: String,

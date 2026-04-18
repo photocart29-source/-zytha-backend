@@ -18,7 +18,7 @@ const sendWelcomeEmail = async ({ to, name }) => {
            style="display:inline-block;margin-top:20px;padding:12px 28px;background:#e65c00;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">
           Shop Now
         </a>
-        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods. All rights reserved.</p>
+        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods Private Limited. All rights reserved.</p>
       </div>
     `,
   });
@@ -64,7 +64,7 @@ const sendOrderConfirmationEmail = async ({ to, name, orderId, total, items }) =
            style="display:inline-block;margin-top:24px;padding:12px 28px;background:#e65c00;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">
           Track Your Order
         </a>
-        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods. All rights reserved.</p>
+        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods Private Limited. All rights reserved.</p>
       </div>
     `,
   });
@@ -87,7 +87,7 @@ const sendPasswordResetEmail = async ({ to, name, resetUrl }) => {
           Reset Password
         </a>
         <p style="margin-top:20px;color:#666;">If you didn't request this, you can safely ignore this email.</p>
-        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods. All rights reserved.</p>
+        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods Private Limited. All rights reserved.</p>
       </div>
     `,
   });
@@ -113,7 +113,7 @@ const sendVendorStatusEmail = async ({ to, name, status }) => {
            style="display:inline-block;margin-top:20px;padding:12px 28px;background:#e65c00;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">
           Go to Vendor Dashboard
         </a>` : ''}
-        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods. All rights reserved.</p>
+        <p style="margin-top:32px;color:#999;font-size:12px;">© 2026 Zytha Foods Private Limited. All rights reserved.</p>
       </div>
     `,
   });

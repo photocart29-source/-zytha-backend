@@ -14,7 +14,7 @@ const getCartFilter = (req) => {
 // GET /api/cart
 router.get('/', optionalAuth, async (req, res, next) => {
   try {
-    const cart = await Cart.findOne(getCartFilter(req)).populate('items.product', 'name images price salePrice stock status');
+    const cart = await Cart.findOne(getCartFilter(req)).populate('items.product', 'name images price salePrice stock status gst');
     res.json({ success: true, data: cart || { items: [] } });
   } catch (err) { next(err); }
 });
@@ -39,7 +39,7 @@ router.post('/add', optionalAuth, async (req, res, next) => {
       cart.items.push({ product: productId, quantity });
     }
     await cart.save();
-    await cart.populate('items.product', 'name images price salePrice stock');
+    await cart.populate('items.product', 'name images price salePrice stock gst');
     res.json({ success: true, data: cart });
   } catch (err) { next(err); }
 });
@@ -58,7 +58,7 @@ router.patch('/update', optionalAuth, async (req, res, next) => {
       if (idx > -1) cart.items[idx].quantity = quantity;
     }
     await cart.save();
-    await cart.populate('items.product', 'name images price salePrice stock');
+    await cart.populate('items.product', 'name images price salePrice stock gst');
     res.json({ success: true, data: cart });
   } catch (err) { next(err); }
 });
@@ -83,7 +83,7 @@ router.post('/coupon', optionalAuth, async (req, res, next) => {
     if (!coupon || (coupon.expiryDate && coupon.expiryDate < new Date())) {
       return res.status(400).json({ success: false, message: 'Invalid or expired coupon.' });
     }
-    const cart = await Cart.findOne(getCartFilter(req)).populate('items.product', 'price salePrice');
+    const cart = await Cart.findOne(getCartFilter(req)).populate('items.product', 'price salePrice gst');
     if (!cart) return res.status(404).json({ success: false, message: 'Cart not found.' });
 
     const subtotal = cart.items.reduce((sum, i) => sum + (i.product.salePrice || i.product.price) * i.quantity, 0);

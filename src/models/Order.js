@@ -6,6 +6,7 @@ const orderItemSchema = new mongoose.Schema({
   name:    { type: String, required: true },
   image:   String,
   price:   { type: Number, required: true },
+  gst:     { type: Number, default: 0 }, // Store GST percentage at time of order
   quantity:{ type: Number, required: true, min: 1 },
 });
 
@@ -50,6 +51,7 @@ const orderSchema = new mongoose.Schema(
     },
     itemsTotal:    { type: Number, required: true },
     shippingCost:  { type: Number, default: 0 },
+    gst:           { type: Number, default: 0 }, // Total GST amount
     discount:      { type: Number, default: 0 },
     couponCode:    String,
     totalAmount:   { type: Number, required: true },

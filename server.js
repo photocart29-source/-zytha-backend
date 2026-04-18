@@ -26,6 +26,7 @@ const uploadRoutes      = require('./src/routes/upload.routes');
 const webhookRoutes     = require('./src/routes/webhook.routes');
 const adminRoutes       = require('./src/routes/admin.routes');
 const settingRoutes     = require('./src/routes/setting.routes');
+const vendorRequestRoutes = require('./src/routes/vendorRequest.routes');
 const { ensureSession } = require('./src/middleware/session');
 
 const { errorHandler, notFound } = require('./src/middleware/errorHandler');
@@ -89,6 +90,7 @@ app.use('/api/coupons',    couponRoutes);
 app.use('/api/upload',     uploadRoutes);
 app.use('/api/admin',      adminRoutes);
 app.use('/api/settings',   settingRoutes);
+app.use('/api/vendor-requests', vendorRequestRoutes);
 
 // ─── Health Check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
