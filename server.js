@@ -27,6 +27,7 @@ const webhookRoutes     = require('./src/routes/webhook.routes');
 const adminRoutes       = require('./src/routes/admin.routes');
 const settingRoutes     = require('./src/routes/setting.routes');
 const vendorRequestRoutes = require('./src/routes/vendorRequest.routes');
+const freshPrepRequestRoutes = require('./src/routes/freshPrepRequest.routes');
 const { ensureSession } = require('./src/middleware/session');
 
 const { errorHandler, notFound } = require('./src/middleware/errorHandler');
@@ -91,6 +92,7 @@ app.use('/api/upload',     uploadRoutes);
 app.use('/api/admin',      adminRoutes);
 app.use('/api/settings',   settingRoutes);
 app.use('/api/vendor-requests', vendorRequestRoutes);
+app.use('/api/fresh-prep-requests', freshPrepRequestRoutes);
 
 // ─── Health Check ──────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

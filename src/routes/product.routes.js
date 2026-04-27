@@ -70,7 +70,18 @@ router.get('/', optionalAuth, async (req, res, next) => {
       if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
     if (rating)  filter.ratingsAverage = { $gte: Number(rating) };
-    if (search)  filter.$text = { $search: search };
+    if (search) {
+      const Category = require('../models/Category');
+      const matchingCats = await Category.find({ name: { $regex: search, $options: 'i' } }).select('_id').lean();
+      const catIds = matchingCats.map(c => c._id);
+
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+        { tags: { $in: [new RegExp(search, 'i')] } },
+        { category: { $in: catIds } }
+      ];
+    }
 
     // Vendor isolation
     if (req.user && req.user.role === 'vendor') {
