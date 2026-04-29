@@ -9,14 +9,24 @@ const adminRoles = ['admin', 'superadmin'];
 // @route   POST /api/fresh-prep-requests
 router.post('/', async (req, res) => {
   try {
-    const { items, phone, address, remarks, user } = req.body;
+    const { 
+      items, phone, address, remarks, user,
+      businessName, gstNumber, orderReference, 
+      deliveryType, deliveryDate, alternatePhone 
+    } = req.body;
     
     const request = await FreshPrepRequest.create({
       items,
       phone,
       address,
       remarks,
-      user: user || null
+      user: user || null,
+      businessName,
+      gstNumber,
+      orderReference,
+      deliveryType,
+      deliveryDate,
+      alternatePhone
     });
 
     res.status(201).json({

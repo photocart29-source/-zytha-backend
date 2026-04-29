@@ -51,7 +51,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const {
       page = 1, limit = 12, category, brand, minPrice, maxPrice,
-      rating, status = 'active', sort = '-createdAt', search, badge,
+      rating, status = 'active', sort = '-createdAt', search, badge, fields
     } = req.query;
 
     const filter = {};
@@ -130,11 +130,11 @@ router.get('/', optionalAuth, async (req, res, next) => {
         const j = Math.floor(Math.random() * (i + 1));
         [allIds[i], allIds[j]] = [allIds[j], allIds[i]];
       }
-      const selectedIds = allIds.slice(0, finalLimit).map(p => p._id);
+      const selectedIds = allIds.slice(skip, skip + finalLimit).map(p => p._id);
 
       // Step 3: Fetch only those N products with full fields
       products = await Product.find({ _id: { $in: selectedIds } })
-        .select({ variants: 0, thumbnailUrl: 0 })
+        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0 })
         .lean();
 
       // Trim to first image only + manual memory join
@@ -158,7 +158,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select({ variants: 0, thumbnailUrl: 0 })
+        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0 })
         .lean();
       console.log('[API] find products end');
 
