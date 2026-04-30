@@ -134,16 +134,13 @@ router.get('/', optionalAuth, async (req, res, next) => {
 
       // Step 3: Fetch only those N products with full fields
       products = await Product.find({ _id: { $in: selectedIds } })
-        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0 })
+        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0, images: 0 })
         .lean();
 
-      // Trim to first image only + manual memory join
+      // manual memory join
       products = products.map(p => {
         if (p.category) p.category = cMap[p.category.toString()] || p.category;
         if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
-        if (p.images && p.images.length > 0) {
-          p.images = [p.images[0]];
-        }
         return p;
       });
 
@@ -158,17 +155,13 @@ router.get('/', optionalAuth, async (req, res, next) => {
         .sort(sortObj)
         .skip(skip)
         .limit(finalLimit)
-        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0 })
+        .select(fields ? fields.split(',').join(' ') : { variants: 0, thumbnailUrl: 0, images: 0 })
         .lean();
       console.log('[API] find products end');
 
       products = products.map(p => {
         if (p.category) p.category = cMap[p.category.toString()] || p.category;
         if (p.vendor)   p.vendor   = vMap[p.vendor.toString()]   || p.vendor;
-        // Only keep the first image to save bandwidth
-        if (p.images && p.images.length > 0) {
-          p.images = [p.images[0]];
-        }
         return p;
       });
     }

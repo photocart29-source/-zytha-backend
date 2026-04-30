@@ -44,7 +44,6 @@ router.post('/', protect, async (req, res, next) => {
         product:  i.product._id,
         vendor:   i.product.vendor, // Now populated
         name:     i.product.name,
-        image:    i.product.images?.[0]?.url,
         price,
         gst:      gstPercent,
         quantity: i.quantity,
@@ -178,6 +177,7 @@ router.get('/', protect, async (req, res, next) => {
     }
 
     let orders = await Order.find(filter)
+      .select('-items.image')
       .populate('user', 'name email')
       .populate('items.vendor', 'name role')   // ← populate vendor name for dropdown
       .skip((Number(page) - 1) * Number(limit))
@@ -202,7 +202,9 @@ router.get('/', protect, async (req, res, next) => {
 // GET /api/orders/:id
 router.get('/:id', protect, async (req, res, next) => {
   try {
-    const order = await Order.findOne({ orderId: req.params.id }).populate('user', 'name email');
+    const order = await Order.findOne({ orderId: req.params.id })
+      .select('-items.image')
+      .populate('user', 'name email');
     if (!order) return res.status(404).json({ success: false, message: 'Order not found.' });
     
     // Authorization check
