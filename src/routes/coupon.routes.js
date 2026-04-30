@@ -11,6 +11,19 @@ router.get('/', protect, authorize('admin', 'superadmin'), async (req, res, next
   } catch (err) { next(err); }
 });
 
+// GET /api/coupons/public — public (all active)
+router.get('/public', async (req, res, next) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const coupons = await Coupon.find({
+      isActive: true,
+      $or: [{ expiryDate: { $gt: today } }, { expiryDate: { $exists: false } }]
+    }).sort('-createdAt');
+    res.json({ success: true, data: coupons });
+  } catch (err) { next(err); }
+});
+
 // POST /api/coupons/validate — public (validates before checkout)
 router.post('/validate', async (req, res, next) => {
   try {
