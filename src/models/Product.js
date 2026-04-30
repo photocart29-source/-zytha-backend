@@ -161,7 +161,7 @@ productSchema.virtual('effectivePrice').get(function () {
 
 // ─── Text index for search ─────────────────────────────────────────────────────
 productSchema.index({ name: 'text', description: 'text', tags: 'text', brand: 'text' });
-productSchema.index({ slug: 1 }, { unique: true });
+
 productSchema.index({ soldCount: -1 });
 productSchema.index({ status: 1, soldCount: -1 });
 productSchema.index({ status: 1, vendor: 1, createdAt: -1 });
