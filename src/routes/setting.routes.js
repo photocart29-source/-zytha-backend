@@ -40,7 +40,10 @@ router.post('/:key', protect, authorize('admin', 'superadmin'), async (req, res,
     // Invalidate/Update cache
     cache.set(key, { value, expiresAt: Date.now() + TTL });
     res.json({ success: true, data: setting.value });
-  } catch (err) { next(err); }
+  } catch (err) { 
+    console.error(`Error updating setting ${req.params.key}:`, err);
+    next(err); 
+  }
 });
 
 // DELETE /api/settings/:key
