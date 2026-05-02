@@ -14,7 +14,9 @@ router.post('/apply', protect, async (req, res, next) => {
 
     const body      = req.body;
     body.user       = req.user._id;
-    body.storeSlug  = slugify(body.storeName, { lower: true });
+    if (!body.storeSlug) {
+      body.storeSlug = slugify(body.storeName, { lower: true });
+    }
     const vendor    = await Vendor.create(body);
     res.status(201).json({ success: true, data: vendor, message: 'Application submitted. We will review shortly.' });
   } catch (err) { next(err); }
@@ -73,7 +75,7 @@ router.post('/', protect, authorize('admin', 'superadmin'), async (req, res, nex
     const vendor = await Vendor.create({
       user: user._id,
       storeName,
-      storeSlug: slugify(storeName, { lower: true }),
+      storeSlug: req.body.storeSlug || slugify(storeName, { lower: true }),
       status: 'approved' // Auto-approved when created by admin
     });
 
